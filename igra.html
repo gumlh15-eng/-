@@ -1,1 +1,216 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Безбилетник: московский забег</title>
+<style>
+html,body{margin:0;background:#0d0d12;color:#eee;font-family:sans-serif}
+#wrap{max-width:900px;margin:0 auto;padding:8px}
+h3{margin:6px 0 4px}
+canvas{display:block;width:100%;background:#14141c;border:1px solid #333;border-radius:8px;touch-action:none}
+.hint{color:#999;font-size:14px;margin:6px 2px}
+</style>
+</head>
+<body>
+<div id="wrap">
+<h3>Безбилетник: московский забег 🚇🏃</h3>
+<canvas id="c"></canvas>
+<p class="hint">Тап или пробел — прыжок. Удержание пальца или стрелка «вниз» — присесть под голубем. Рекорд сохраняется в браузере.</p>
+</div>
+<script>
+(function(){
+var cvs=document.getElementById('c'),ctx=cvs.getContext('2d');
+var W=320,H=320,groundY=278;
+function resize(){
+ var dpr=window.devicePixelRatio||1;
+ W=cvs.clientWidth||320;H=320;
+ cvs.width=Math.round(W*dpr);cvs.height=Math.round(H*dpr);
+ ctx.setTransform(dpr,0,0,dpr,0,0);
+ groundY=H-42;
+}
+window.addEventListener('resize',resize);
 
+var sky=(function(){
+ var a=[],x=0,seed=7;
+ function rnd(){seed=(seed*1103515245+12345)%2147483648;return seed/2147483648;}
+ while(x<1200){var w=36+rnd()*66,h=26+rnd()*74;a.push([x,w,h]);x+=w+10+rnd()*26;}
+ return a;
+})();
+
+var TYPES={
+ turnstile:{w:26,h:46},
+ scooter:{w:36,h:30},
+ metro:{w:104,h:58},
+ bus:{w:96,h:52},
+ trolley:{w:96,h:52},
+ bird:{w:32,h:22,fly:true}
+};
+
+var state='start',dist=0,speed=5,score=0,hi=0,overT=0;
+try{hi=parseInt(localStorage.getItem('runner_hi')||'0')||0;}catch(e){}
+var obs=[],spawnIn=420;
+var pl={x:80,y:0,vy:0,w:34,h:52,ground:true,duck:false};
+var duckHeld=false,jumpReq=false;
+pl.y=groundY;
+
+function reset(){
+ dist=0;speed=5;score=0;obs=[];spawnIn=420;
+ pl.y=groundY;pl.vy=0;pl.ground=true;pl.h=52;pl.duck=false;
+ state='run';
+}
+
+function spawn(){
+ var t;
+ if(score>80&&Math.random()<0.22)t='bird';
+ else{
+  var pool=score<60?['turnstile','scooter','turnstile','scooter']:
+           score<150?['turnstile','scooter','metro','bus']:
+           ['turnstile','scooter','metro','bus','trolley','metro','bus'];
+  t=pool[Math.floor(Math.random()*pool.length)];
+ }
+ var d=TYPES[t];
+ obs.push({t:t,w:d.w,h:d.h,x:W+40,by:groundY-58,bob:0});
+ spawnIn=340+Math.random()*320+speed*12;
+}
+
+function caught(){
+ state='over';overT=0;
+ if(score>hi){hi=score;try{localStorage.setItem('runner_hi',String(hi));}catch(e){}}
+}
+
+function update(dt){
+ if(state!=='run')return;
+ speed=Math.min(13,speed+0.0009*dt);
+ dist+=speed*dt;score=Math.floor(dist/10);
+ pl.duck=(duckHeld&&pl.ground);
+ pl.h=pl.duck?30:52;
+ if(jumpReq&&pl.ground){pl.vy=-12.2;pl.ground=false;}
+ jumpReq=false;
+ pl.vy+=0.62*dt;pl.y+=pl.vy*dt;
+ if(pl.y>=groundY){pl.y=groundY;pl.vy=0;pl.ground=true;}
+ spawnIn-=speed*dt;
+ if(spawnIn<=0)spawn();
+ var px=pl.x+5,pw=pl.w-10,pt=pl.y-pl.h,pb=pl.y;
+ for(var i=obs.length-1;i>=0;i--){
+  var o=obs[i];o.x-=speed*dt;
+  if(o.t==='bird')o.bob=Math.sin(dist*0.05)*4;
+  if(o.x+o.w<-40){obs.splice(i,1);continue;}
+  var top,bot;
+  if(o.t==='bird'){top=o.by+o.bob;bot=o.by+o.bob+o.h;}
+  else{top=groundY-o.h;bot=groundY;}
+  if(px<o.x+o.w-4&&px+pw>o.x+4&&pt<bot-2&&pb>top+2){caught();return;}
+ }
+}
+
+function emo(ch,x,y,s,flip){
+ ctx.save();ctx.font=s+'px serif';ctx.textAlign='center';
+ ctx.translate(x,y);if(flip)ctx.scale(-1,1);ctx.fillText(ch,0,0);ctx.restore();
+}
+
+function mskLogo(x,y,r){
+ ctx.fillStyle='#e2231a';
+ ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fill();
+ ctx.fillStyle='#fff';ctx.font='bold '+(r*1.5)+'px sans-serif';
+ ctx.textAlign='center';ctx.textBaseline='middle';
+ ctx.fillText('M',x,y+1);
+ ctx.textBaseline='alphabetic';
+}
+
+function drawObs(o){
+ var x=o.x,y,i;
+ if(o.t==='scooter'){emo('🛴',o.x+o.w/2,groundY+3,30,true);return;}
+ if(o.t==='bird'){emo('🕊️',o.x+o.w/2,o.by+o.bob+o.h-2,26,true);return;}
+ y=groundY-o.h;
+ if(o.t==='turnstile'){
+  ctx.fillStyle='#9aa0a6';ctx.fillRect(x,y,6,o.h);ctx.fillRect(x+o.w-6,y,6,o.h);
+  ctx.fillStyle='#d84a4a';ctx.fillRect(x-3,y+8,o.w+6,7);
+ }else{
+  ctx.fillStyle=(o.t==='metro')?'#3f9b4f':'#2f6fb5';
+  ctx.fillRect(x,y,o.w,o.h);
+  ctx.fillStyle='#cfe8f5';
+  for(i=0;i<Math.floor(o.w/26);i++)ctx.fillRect(x+7+i*26,y+9,16,15);
+  if(o.t==='trolley'){ctx.fillStyle='#f2f2f2';ctx.fillRect(x,y+o.h-16,o.w,6);}
+  ctx.fillStyle='#15151a';
+  ctx.beginPath();ctx.arc(x+14,groundY-5,6,0,7);ctx.arc(x+o.w-14,groundY-5,6,0,7);ctx.fill();
+  mskLogo(x+o.w-14,y+o.h-13,8);
+ }
+}
+
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ var i,k,b,bx,off=(dist*0.25)%1200;
+ for(i=0;i<sky.length;i++){
+  b=sky[i];
+  for(k=0;k<2;k++){
+   bx=b[0]-off+k*1200;
+   if(bx+b[1]>0&&bx<W){
+    ctx.fillStyle='#1b1f2c';ctx.fillRect(bx,groundY-b[2]-14,b[1],b[2]);
+    ctx.fillStyle='#2a3040';
+    for(var wy=groundY-b[2]-8;wy<groundY-20;wy+=14)
+     for(var wx=bx+5;wx<bx+b[1]-8;wx+=13)ctx.fillRect(wx,wy,5,7);
+   }
+  }
+ }
+ ctx.fillStyle='#26262e';ctx.fillRect(0,groundY,W,H-groundY);
+ ctx.fillStyle='#3a3a45';
+ for(var x=-(dist%48);x<W;x+=48)ctx.fillRect(x,groundY+16,22,3);
+ for(i=0;i<obs.length;i++)drawObs(obs[i]);
+ var cb=Math.sin(dist*0.09)*3;
+ if(state==='over')emo('👮',pl.x-30,pl.y+4,48,true);
+ else emo('👮',22,groundY+3+cb,44,true);
+ if(state!=='start'){
+  ctx.save();
+  if(pl.duck){ctx.translate(pl.x+pl.w/2,pl.y+4);ctx.scale(1,0.62);ctx.translate(-(pl.x+pl.w/2),-(pl.y+4));}
+  emo('🏃',pl.x+pl.w/2,pl.y+4,44,true);
+  ctx.restore();
+ }
+ ctx.fillStyle='#eee';ctx.font='15px sans-serif';
+ ctx.textAlign='left';ctx.fillText('Рекорд: '+hi+' м',10,22);
+ ctx.textAlign='right';ctx.fillText(score+' м',W-10,22);
+ if(state==='start')overlay('БЕЗБИЛЕТНИК','Прыгай через турникеты, самокаты и транспорт. Под голубями приседай. Контролёр дышит в спину!','Тапните, чтобы начать забег');
+ if(state==='over')overlay('ПОЙМАЛИ!','Пройдено: '+score+' м · Рекорд: '+hi+' м','Тапните, чтобы снова удрать');
+}
+
+function overlay(t1,t2,t3){
+ ctx.fillStyle='rgba(0,0,0,0.62)';ctx.fillRect(0,0,W,H);
+ ctx.fillStyle='#7de07d';ctx.font='bold 30px sans-serif';ctx.textAlign='center';
+ ctx.fillText(t1,W/2,H/2-46);
+ ctx.fillStyle='#ddd';ctx.font='15px sans-serif';
+ ctx.fillText(t2,W/2,H/2-14);
+ ctx.fillText(t3,W/2,H/2+18);
+ ctx.textAlign='left';
+}
+
+var last=0;
+function loop(ts){
+ var dt=Math.min(2.5,(ts-last)/16.7||1);last=ts;
+ if(state==='over')overT+=dt;
+ update(dt);draw();
+ requestAnimationFrame(loop);
+}
+
+cvs.addEventListener('pointerdown',function(e){
+ e.preventDefault();
+ if(state==='start'){reset();return;}
+ if(state==='over'){if(overT>25)reset();return;}
+ if(pl.ground&&!duckHeld)jumpReq=true;
+ duckHeld=true;
+});
+window.addEventListener('pointerup',function(){duckHeld=false;});
+window.addEventListener('keydown',function(e){
+ if(e.code==='Space'||e.code==='ArrowUp'){
+  e.preventDefault();
+  if(state==='start')reset();
+  else if(state==='over'){if(overT>25)reset();}
+  else if(pl.ground&&!duckHeld)jumpReq=true;
+ }
+ if(e.code==='ArrowDown'){duckHeld=true;e.preventDefault();}
+});
+window.addEventListener('keyup',function(e){if(e.code==='ArrowDown')duckHeld=false;});
+
+resize();requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
